@@ -100,17 +100,24 @@ app_flask = Flask(__name__)
 def home():
     return "Bot is alive and running 24/7!"
 
+async def main_bot():
+    """Асинхронный запуск бота через updater (идеально для потоков)"""
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_click))
+    
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
+    
+    # Держим бот активным
+    stop_event = asyncio.Event()
+    await stop_event.wait()
+
 def run_telegram_bot():
     print("🤖 Попытка запуска Telegram бота...")
     try:
-        # Создаем цикл событий для потока (нужно для корректной работы на Python 3.14)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        application = Application.builder().token(TOKEN).build()
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CallbackQueryHandler(button_click))
-        application.run_polling(drop_pending_updates=True)
+        asyncio.run(main_bot())
     except Exception as e:
         print(f"Ошибка бота: {e}")
 
