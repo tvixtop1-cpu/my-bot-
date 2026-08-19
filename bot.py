@@ -40,7 +40,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Заменено на reply_text, чтобы бот не падал из-за отсутствия file_id фотографии
     await update.message.reply_text(
         "Привет, этот бот абсолютно бесплатный.\n\n"
         "Для поддержки автора, пожалуйста, подпишитесь на канал @Durov_poul. "
@@ -102,12 +101,18 @@ def home():
     return "Bot is alive and running 24/7!"
 
 def run_telegram_bot():
-    print("🤖 Telegram бот запущен в фоне!")
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_click))
-    # drop_pending_updates=True сбрасывает старые зависшие запросы и убирает конфликт
-    application.run_polling(drop_pending_updates=True)
+    print("🤖 Попытка запуска Telegram бота...")
+    try:
+        # Создаем цикл событий для потока (нужно для корректной работы на Python 3.14)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        application = Application.builder().token(TOKEN).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CallbackQueryHandler(button_click))
+        application.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Ошибка бота: {e}")
 
 if __name__ == '__main__':
     # Запускаем телеграм-бота в фоновом потоке
@@ -118,3 +123,4 @@ if __name__ == '__main__':
     # Запускаем веб-сервер Flask (открывает порт для Render)
     port = int(os.environ.get("PORT", 5000))
     app_flask.run(host='0.0.0.0', port=port)
+
