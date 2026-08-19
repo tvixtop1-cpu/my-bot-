@@ -1,6 +1,10 @@
 import random
+import string
 import asyncio
+import os
+import threading
 from datetime import datetime
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -11,32 +15,9 @@ COOLDOWN_SECONDS = 30
 GENERATION_COUNT = 10
 user_last_request = {}
 
-# ===== НАСТОЯЩИЙ СЛОВАРЬ АНГЛИЙСКИХ СЛОВ =====
-ENGLISH_WORDS = [
-    "apple", "happy", "sunny", "bright", "cloud", "ocean", "river", "storm", 
-    "moon", "star", "light", "heart", "dream", "world", "peace", "brain", 
-    "smart", "quick", "slow", "fast", "tall", "short", "big", "small", 
-    "real", "nice", "cool", "warm", "cold", "new", "old", "young", 
-    "urban", "rural", "elite", "prime", "logic", "magic", "royal", "queen", 
-    "king", "city", "town", "village", "forum", "miner", "diver", "power", 
-    "happy", "angry", "good", "bad", "free", "safe", "wild", "wise", 
-    "mad", "rad", "top", "mix", "box", "cat", "dog", "fox", 
-    "sun", "sky", "fire", "water", "earth", "wind", "rain", "snow", 
-    "ice", "gold", "silver", "iron", "steel", "wood", "stone", "rock", 
-    "wave", "lake", "sea", "bay", "cape", "isle", "land", "love", 
-    "hope", "faith", "trust", "noble", "hero", "epic", "fame", "glory", 
-    "honor", "valor", "pride", "grace", "charm", "smile", "laugh", "joy", 
-    "bliss", "calm", "serene", "quiet", "still", "witty", "genius", "mega", 
-    "ultra", "super", "hyper", "max", "pro", "best", "great", "fine", 
-    "cool", "worst", "legend", "myth", "idea", "zone"
-]
-
 # ===== ФУНКЦИИ БОТА =====
-def get_random_word(length: int) -> str:
-    candidates = [w for w in ENGLISH_WORDS if len(w) == length]
-    if candidates:
-        return random.choice(candidates)
-    return None
+def generate_random_username(length: int) -> str:
+    return ''.join(random.choices(string.ascii_lowercase, k=length))
 
 async def is_subscribed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
@@ -55,8 +36,7 @@ async def check_username(username: str, context: ContextTypes.DEFAULT_TYPE) -> b
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🔍 5 знаков", callback_data="5")],
-        [InlineKeyboardButton("🔍 6 знаков", callback_data="6")],
-        [InlineKeyboardButton("📖 Слова (любая длина)", callback_data="words")],
+        [InlineKeyboardButton("🔍 6 знаков", callback_data="6")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -64,7 +44,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Привет, этот бот абсолютно бесплатный.\n\n"
         "Для поддержки автора, пожалуйста, подпишитесь на канал @Durov_poul. "
         "Будем вам признательны! 🫶\n\n"
-        "Выберите режим поиска:",
+        "Выберите длину ника:",
         reply_markup=reply_markup
     )
 
@@ -73,7 +53,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     user_id = update.effective_user.id
-    data = query.data
+    length = int(query.data)
     
     if not await is_subscribed(user_id, context):
         await query.edit_message_text(
@@ -91,35 +71,16 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     user_last_request[user_id] = now
-    
-    # Определяем, что ищем
-    word_mode = False
-    length = 0
-    
-    if data == "words":
-        word_mode = True
-        length = random.choice([4, 5, 6, 7, 8])  # случайная длина
-        await query.edit_message_text(f"📖 Ищу свободные английские слова (длина {length})...")
-    else:
-        length = int(data)
-        await query.edit_message_text(f"🔍 Ищу {GENERATION_COUNT} свободных {length}-значных имён...")
+    await query.edit_message_text(f"🔍 Ищу {GENERATION_COUNT} свободных {length}-значных имён...")
     
     found_names = []
     attempts = 0
     
     while len(found_names) < GENERATION_COUNT:
         attempts += 1
-        
-        if word_mode:
-            username = get_random_word(length)
-            if username is None:
-                continue
-        else:
-            username = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=length))
-        
+        username = generate_random_username(length)
         if username in found_names:
             continue
-        
         if await check_username(username, context):
             found_names.append(username)
             if len(found_names) % 2 == 0:
@@ -132,9 +93,25 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎉 Найдено {len(found_names)} имён:\n\n{names_list}\n\nВсего проверено: {attempts} вариантов."
     )
 
-# ===== ЗАПУСК =====
-print("🤖 Бот запущен!")
-app = Application.builder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_click))
-app.run_polling()
+# ===== ВЕБ-СЕРВЕР ДЛЯ ХОСТИНГА (чтобы не вырубался) =====
+app_flask = Flask(__name__)
+@app_flask.route('/')
+def home():
+    return "Bot is active and running!"
+
+def run_telegram_bot():
+    print("🤖 Бот запущен!")
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_click))
+    application.run_polling()
+
+if __name__ == '__main__':
+    # Запускаем телеграм-бота в фоновом потоке
+    t = threading.Thread(target=run_telegram_bot)
+    t.daemon = True
+    t.start()
+
+    # Запускаем веб-сервер Flask
+    port = int(os.environ.get("PORT", 5000))
+    app_flask.run(host='0.0.0.0', port=port)
